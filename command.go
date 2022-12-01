@@ -33,7 +33,7 @@ type Command struct {
 	workDir  string
 	ctx      context.Context
 	cancel   context.CancelFunc
-	procAttr *syscall.SysProcAttr
+	procAttr syscall.SysProcAttr
 }
 
 func NewCmd() *Command {
@@ -55,7 +55,7 @@ func NewCommand(uid int, gid int, user *user.User) *Command {
 		cmd:      &exec.Cmd{},
 		timeout:  0,
 		workDir:  "",
-		procAttr: &syscall.SysProcAttr{
+		procAttr: syscall.SysProcAttr{
 			Cloneflags:                 syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
 			GidMappingsEnableSetgroups: true,
 			Setpgid:                    true,
@@ -73,12 +73,13 @@ func NewCommand(uid int, gid int, user *user.User) *Command {
 					Size:        1,
 				},
 			},
-			Pgid: 0,
+			Pgid:       0,
+			Credential: &syscall.Credential{},
 		},
 	}
 }
 
-func (c *Command) SetSysProcAttr(procAttr *syscall.SysProcAttr) {
+func (c *Command) SetSysProcAttr(procAttr syscall.SysProcAttr) {
 	c.procAttr = procAttr
 }
 
@@ -181,7 +182,6 @@ func (c *Command) GetPid() int {
 }
 
 func (c *Command) Run() (output []byte, err error) {
-	defer c.cancel()
 	if err = c.cmd.Wait(); err != nil {
 		if exiterr, ok := err.(*exec.ExitError); ok {
 			if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
@@ -201,6 +201,10 @@ func (c *Command) Run() (output []byte, err error) {
 	return c.GetOutput()
 }
 
+func (c *Command) Close() {
+	defer c.cancel()
+}
+
 func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 	if c.debug {
 		log.Infof("run command under the uid[%d] gid[%d]", c.uid_ui32, c.gid_ui32)
@@ -213,7 +217,7 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		c.cmd = exec.Command(cmdl, args...)
 	}
 
-	c.cmd.SysProcAttr = c.procAttr
+	c.cmd.SysProcAttr = &c.procAttr
 	if c.uid_ui32 > 0 && c.gid_ui32 > 0 {
 		c.cmd.SysProcAttr.Credential = &syscall.Credential{
 			Uid: c.uid_ui32,
