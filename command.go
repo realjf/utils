@@ -234,6 +234,10 @@ func (c *Command) GetOutput() ([]byte, error) {
 	return c.stdout.Bytes(), nil
 }
 
+func (c *Command) GetStderrOutput() ([]byte, error) {
+	return c.stderr.Bytes(), nil
+}
+
 func (c *Command) GetError() ([]byte, error) {
 	return c.stderr.Bytes(), nil
 }
