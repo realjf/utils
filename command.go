@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
-	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
@@ -135,10 +134,6 @@ func (c *Command) RunCommand(cmdl string, args ...string) (output []byte, err er
 }
 
 func (c *Command) GetPid() int {
-	for c.pid <= 0 {
-		c.pid = c.cmd.Process.Pid
-		runtime.Gosched()
-	}
 	return c.pid
 }
 
