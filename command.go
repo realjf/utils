@@ -33,6 +33,7 @@ type Command struct {
 	workDir  string
 	ctx      context.Context
 	cancel   context.CancelFunc
+	procAttr *syscall.SysProcAttr
 }
 
 func NewCmd() *Command {
@@ -54,7 +55,31 @@ func NewCommand(uid int, gid int, user *user.User) *Command {
 		cmd:      &exec.Cmd{},
 		timeout:  0,
 		workDir:  "",
+		procAttr: &syscall.SysProcAttr{
+			Cloneflags:                 syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
+			GidMappingsEnableSetgroups: true,
+			Setpgid:                    true,
+			UidMappings: []syscall.SysProcIDMap{
+				{
+					ContainerID: 0,
+					HostID:      0,
+					Size:        1,
+				},
+			},
+			GidMappings: []syscall.SysProcIDMap{
+				{
+					ContainerID: 0,
+					HostID:      0,
+					Size:        1,
+				},
+			},
+			Pgid: 0,
+		},
 	}
+}
+
+func (c *Command) SetSysProcAttr(procAttr *syscall.SysProcAttr) {
+	c.procAttr = procAttr
 }
 
 func (c *Command) SetTimeout(t time.Duration) {
@@ -188,30 +213,14 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		c.cmd = exec.Command(cmdl, args...)
 	}
 
-	c.cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags:                 syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
-		GidMappingsEnableSetgroups: true,
-		Setpgid:                    true,
-		UidMappings: []syscall.SysProcIDMap{
-			{
-				ContainerID: 0,
-				HostID:      0,
-				Size:        1,
-			},
-		},
-		GidMappings: []syscall.SysProcIDMap{
-			{
-				ContainerID: 0,
-				HostID:      0,
-				Size:        1,
-			},
-		},
-		Pgid: 0,
+	c.cmd.SysProcAttr = c.procAttr
+	if c.uid_ui32 > 0 && c.gid_ui32 > 0 {
+		c.cmd.SysProcAttr.Credential = &syscall.Credential{
+			Uid: c.uid_ui32,
+			Gid: c.gid_ui32,
+		}
 	}
-	c.cmd.SysProcAttr.Credential = &syscall.Credential{
-		Uid: c.uid_ui32,
-		Gid: c.gid_ui32,
-	}
+
 	if c.user != nil {
 		c.cmd.Env = append(os.Environ(), "USER="+c.user.Username, "HOME="+c.user.HomeDir)
 	} else {
