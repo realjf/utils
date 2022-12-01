@@ -3,6 +3,7 @@ package utils
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -27,6 +29,10 @@ type Command struct {
 	wg       sync.WaitGroup
 	pid      int
 	cmd      *exec.Cmd
+	timeout  time.Duration
+	workDir  string
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 func NewCmd() *Command {
@@ -44,7 +50,19 @@ func NewCommand(uid int, gid int, user *user.User) *Command {
 		stdout:   bytes.Buffer{},
 		stderr:   bytes.Buffer{},
 		wg:       sync.WaitGroup{},
+		pid:      0,
+		cmd:      &exec.Cmd{},
+		timeout:  0,
+		workDir:  "",
 	}
+}
+
+func (c *Command) SetTimeout(t time.Duration) {
+	c.timeout = t
+}
+
+func (c *Command) SetWorkDir(wd string) {
+	c.workDir = wd
 }
 
 func (c *Command) SetDebug(debug bool) *Command {
@@ -138,7 +156,7 @@ func (c *Command) GetPid() int {
 }
 
 func (c *Command) Run() (output []byte, err error) {
-
+	defer c.cancel()
 	if err = c.cmd.Wait(); err != nil {
 		if exiterr, ok := err.(*exec.ExitError); ok {
 			if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
@@ -159,8 +177,17 @@ func (c *Command) Run() (output []byte, err error) {
 }
 
 func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
-	log.Infof("run command under the uid[%d] gid[%d]", c.uid_ui32, c.gid_ui32)
-	c.cmd = exec.Command(cmdl, args...)
+	if c.debug {
+		log.Infof("run command under the uid[%d] gid[%d]", c.uid_ui32, c.gid_ui32)
+	}
+
+	if c.timeout > 0 {
+		c.ctx, c.cancel = context.WithTimeout(context.Background(), c.timeout)
+		c.cmd = exec.CommandContext(c.ctx, cmdl, args...)
+	} else {
+		c.cmd = exec.Command(cmdl, args...)
+	}
+
 	c.cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags:                 syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
 		GidMappingsEnableSetgroups: true,
@@ -189,6 +216,16 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		c.cmd.Env = append(os.Environ(), "USER="+c.user.Username, "HOME="+c.user.HomeDir)
 	} else {
 		c.cmd.Env = os.Environ()
+	}
+
+	if c.workDir != "" {
+		c.cmd.Dir = c.workDir
+	} else {
+		curDir, err := os.Getwd()
+		if err != nil {
+			return pid, err
+		}
+		c.cmd.Dir = curDir
 	}
 
 	syscall.Setgid(c.gid)
