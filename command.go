@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -18,22 +19,26 @@ import (
 )
 
 type Command struct {
-	uid_ui32 uint32
-	gid_ui32 uint32
-	uid      int
-	gid      int
-	user     *user.User
-	debug    bool
-	stdout   bytes.Buffer
-	stderr   bytes.Buffer
-	wg       sync.WaitGroup
-	pid      int
-	cmd      *exec.Cmd
-	timeout  time.Duration
-	workDir  string
-	ctx      context.Context
-	cancel   context.CancelFunc
-	procAttr syscall.SysProcAttr
+	uid_ui32  uint32
+	gid_ui32  uint32
+	uid       int
+	gid       int
+	user      *user.User
+	debug     bool
+	stdoutbuf bytes.Buffer
+	stderrbuf bytes.Buffer
+	wg        sync.WaitGroup
+	pid       int
+	cmd       *exec.Cmd
+	timeout   time.Duration
+	workDir   string
+	ctx       context.Context
+	cancel    context.CancelFunc
+	procAttr  syscall.SysProcAttr
+	stdout    io.ReadCloser
+	stderr    io.ReadCloser
+	stdin     io.WriteCloser
+	stdinChan chan string
 }
 
 func NewCmd() *Command {
@@ -42,40 +47,44 @@ func NewCmd() *Command {
 
 func NewCommand(uid int, gid int, user *user.User) *Command {
 	return &Command{
-		uid_ui32: uint32(uid),
-		gid_ui32: uint32(gid),
-		uid:      uid,
-		gid:      gid,
-		user:     user,
-		debug:    false,
-		stdout:   bytes.Buffer{},
-		stderr:   bytes.Buffer{},
-		wg:       sync.WaitGroup{},
-		pid:      0,
-		cmd:      &exec.Cmd{},
-		timeout:  0,
-		workDir:  "",
-		procAttr: syscall.SysProcAttr{
-			Cloneflags:                 syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
-			GidMappingsEnableSetgroups: true,
-			Setpgid:                    true,
-			UidMappings: []syscall.SysProcIDMap{
-				{
-					ContainerID: 0,
-					HostID:      0,
-					Size:        1,
-				},
-			},
-			GidMappings: []syscall.SysProcIDMap{
-				{
-					ContainerID: 0,
-					HostID:      0,
-					Size:        1,
-				},
-			},
-			Pgid:       0,
-			Credential: &syscall.Credential{},
+		uid_ui32:  uint32(uid),
+		gid_ui32:  uint32(gid),
+		uid:       uid,
+		gid:       gid,
+		user:      user,
+		debug:     false,
+		stdoutbuf: bytes.Buffer{},
+		stderrbuf: bytes.Buffer{},
+		wg:        sync.WaitGroup{},
+		pid:       0,
+		cmd:       &exec.Cmd{},
+		timeout:   0,
+		workDir:   "",
+		procAttr:  syscall.SysProcAttr{
+			// Cloneflags:                 syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
+			// GidMappingsEnableSetgroups: true,
+			// Setpgid:                    true,
+			// UidMappings: []syscall.SysProcIDMap{
+			// 	{
+			// 		ContainerID: 0,
+			// 		HostID:      0,
+			// 		Size:        1,
+			// 	},
+			// },
+			// GidMappings: []syscall.SysProcIDMap{
+			// 	{
+			// 		ContainerID: 0,
+			// 		HostID:      0,
+			// 		Size:        1,
+			// 	},
+			// },
+			// Pgid:       0,
+			// Credential: &syscall.Credential{},
 		},
+		stdout:    nil,
+		stderr:    nil,
+		stdin:     nil,
+		stdinChan: make(chan string),
 	}
 }
 
@@ -189,22 +198,26 @@ func (c *Command) Run() (output []byte, err error) {
 					log.Infof("Exit Status: %d", status.ExitStatus())
 				}
 
-				return c.stdout.Bytes(), err
+				return c.stdoutbuf.Bytes(), err
 			}
 		}
 		if c.debug {
 			log.Error(err.Error())
 		}
-		return c.stdout.Bytes(), err
+		return c.stdoutbuf.Bytes(), err
 	}
 
 	return c.GetOutput()
 }
 
 func (c *Command) Close() {
+	if c.stdin != nil {
+		defer c.stdin.Close()
+	}
 	if c.cancel != nil {
 		defer c.cancel()
 	}
+
 }
 
 func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
@@ -246,25 +259,33 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 	syscall.Setgid(c.gid)
 	syscall.Setuid(c.uid)
 	syscall.Setreuid(-1, c.uid)
-	stdout, err := c.cmd.StdoutPipe()
+	c.stdout, err = c.cmd.StdoutPipe()
 	if err != nil {
 		if c.debug {
 			log.Error(err.Error())
 		}
 		return pid, err
 	}
-	defer stdout.Close()
-	stdoutReader := bufio.NewReader(stdout)
+	defer c.stdout.Close()
+	stdoutReader := bufio.NewReader(c.stdout)
 
-	stderr, err := c.cmd.StderrPipe()
+	c.stderr, err = c.cmd.StderrPipe()
 	if err != nil {
 		if c.debug {
 			log.Error(err.Error())
 		}
 		return pid, err
 	}
-	defer stderr.Close()
-	stderrReader := bufio.NewReader(stderr)
+	defer c.stderr.Close()
+	stderrReader := bufio.NewReader(c.stderr)
+
+	c.stdin, err = c.cmd.StdinPipe()
+	if err != nil {
+		if c.debug {
+			log.Error(err.Error())
+		}
+		return pid, err
+	}
 
 	if err = c.cmd.Start(); err != nil {
 		if c.debug {
@@ -283,15 +304,29 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 }
 
 func (c *Command) GetOutput() ([]byte, error) {
-	return c.stdout.Bytes(), nil
+	if c.stderrbuf.Bytes() != nil {
+		return nil, fmt.Errorf("%s", c.stderrbuf.Bytes())
+	}
+	return c.stdoutbuf.Bytes(), nil
 }
 
 func (c *Command) GetStderrOutput() ([]byte, error) {
-	return c.stderr.Bytes(), nil
+	return c.stderrbuf.Bytes(), nil
 }
 
-func (c *Command) GetError() ([]byte, error) {
-	return c.stderr.Bytes(), nil
+func (c *Command) NeedInput(text string) {
+	stdinWriter := bufio.NewWriter(c.stdin)
+	reader := bufio.NewReader(os.Stdin)
+	os.Stdout.WriteString(text)
+
+	text, err := reader.ReadString('\n')
+	if err != nil {
+		log.Error(err)
+	}
+	_, err = io.WriteString(stdinWriter, text)
+	if err != nil {
+		log.Error(err)
+	}
 }
 
 func (c *Command) handleReader(reader *bufio.Reader, stdio int) {
@@ -301,9 +336,9 @@ func (c *Command) handleReader(reader *bufio.Reader, stdio int) {
 	for {
 		str, err := reader.ReadString('\n')
 		if stdio == 1 {
-			c.stdout.WriteString(str)
+			c.stdoutbuf.WriteString(str)
 		} else if stdio == 2 {
-			c.stderr.WriteString(str)
+			c.stderrbuf.WriteString(str)
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {

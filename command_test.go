@@ -26,6 +26,7 @@ func TestCmd(t *testing.T) {
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
+	cmd.NeedInput("hello:")
 	pid1 := cmd.GetPid()
 	t.Logf("%d,%d", pid, pid1)
 	out, err := cmd.Run()
