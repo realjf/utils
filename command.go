@@ -126,7 +126,7 @@ func (c *Command) GetGid_ui32() uint32 {
 }
 
 func (c *Command) RunCommand(cmdl string, args ...string) (output []byte, err error) {
-	err = c.Command(cmdl, args...)
+	_, err = c.Command(cmdl, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (c *Command) Run() (output []byte, err error) {
 	return c.GetOutput()
 }
 
-func (c *Command) Command(cmdl string, args ...string) (err error) {
+func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 	log.Infof("run command under the uid[%d] gid[%d]", c.uid_ui32, c.gid_ui32)
 	c.cmd = exec.Command(cmdl, args...)
 	c.cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -199,7 +199,7 @@ func (c *Command) Command(cmdl string, args ...string) (err error) {
 		if c.debug {
 			log.Error(err.Error())
 		}
-		return err
+		return pid, err
 	}
 	defer stdout.Close()
 	stdoutReader := bufio.NewReader(stdout)
@@ -209,7 +209,7 @@ func (c *Command) Command(cmdl string, args ...string) (err error) {
 		if c.debug {
 			log.Error(err.Error())
 		}
-		return err
+		return pid, err
 	}
 	defer stderr.Close()
 	stderrReader := bufio.NewReader(stderr)
@@ -218,7 +218,7 @@ func (c *Command) Command(cmdl string, args ...string) (err error) {
 		if c.debug {
 			log.Error(err.Error())
 		}
-		return err
+		return pid, err
 	}
 
 	c.pid = c.cmd.Process.Pid
@@ -227,7 +227,7 @@ func (c *Command) Command(cmdl string, args ...string) (err error) {
 	go c.handleReader(stderrReader, 2)
 	c.wg.Add(1)
 	c.wg.Wait()
-	return nil
+	return c.pid, nil
 }
 
 func (c *Command) GetOutput() ([]byte, error) {

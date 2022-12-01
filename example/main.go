@@ -22,13 +22,13 @@ func main() {
 		return
 	}
 	args := []string{"-al", path}
-	err = cmd.Command("ls", args...)
+	pid, err := cmd.Command("ls", args...)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	pid := cmd.GetPid()
-	log.Printf("pid is: %d", pid)
+	pid1 := cmd.GetPid()
+	log.Printf("pid is: %d, %d", pid, pid1)
 	out, err := cmd.Run()
 	if err != nil {
 		log.Println(err.Error())

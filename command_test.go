@@ -21,12 +21,12 @@ func TestCmd(t *testing.T) {
 		return
 	}
 	args := []string{"-al", path}
-	err = cmd.Command("ls", args...)
+	pid, err := cmd.Command("ls", args...)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
-	pid := cmd.GetPid()
-	t.Logf("%d", pid)
+	pid1 := cmd.GetPid()
+	t.Logf("%d,%d", pid, pid1)
 	out, err := cmd.Run()
 	if err != nil {
 		t.Fatalf(err.Error())
