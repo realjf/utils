@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"log"
+	"os"
 	"os/user"
 	"testing"
 )
@@ -12,7 +14,13 @@ func TestCmd(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 	cmd.SetUser(user)
-	args := []string{"-al", "$(pwd)"}
+
+	path, err := os.Getwd()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	args := []string{"-al", path}
 	err = cmd.Command("ls", args...)
 	if err != nil {
 		t.Fatalf(err.Error())
