@@ -1,4 +1,4 @@
-module utils
+module github.com/realjf/utils
 
 go 1.19
 
