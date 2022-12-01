@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
 	"os/user"
 
 	"github.com/realjf/utils"
@@ -17,14 +16,14 @@ func main() {
 	}
 	cmd.SetUser(user)
 	defer cmd.Close()
-	path, err := os.Getwd()
-	if err != nil {
-		log.Println(err)
-		return
-	}
+	// path, err := os.Getwd()
+	// if err != nil {
+	// 	log.Println(err)
+	// 	return
+	// }
 	// cmd.SetTimeout(1 * time.Second)
-	args := []string{"-al", path}
-	pid, err := cmd.Command("ls", args...)
+	args := []string{"--cpu", "1", "--vm", "1", "--vm-bytes", "220M", "--timeout", "10s", "--vm-keep"}
+	pid, err := cmd.Command("stress", args...)
 	if err != nil {
 		log.Println(err)
 		return

@@ -196,11 +196,16 @@ func (c *Command) Resume() error {
 }
 
 func (c *Command) Run() (output []byte, err error) {
-	err = c.Resume()
-	if err != nil {
-		return nil, err
+	if c.cmd.Process == nil {
+		log.Error("subprocess already exited")
+	} else {
+		err = c.Resume()
+		if err != nil {
+			return nil, err
+		}
+		c.wg.Wait()
 	}
-	c.wg.Wait()
+
 	if err = c.cmd.Wait(); err != nil {
 		if exiterr, ok := err.(*exec.ExitError); ok {
 			if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
