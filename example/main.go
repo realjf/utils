@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/user"
 
-	"github.com/realjf/utils/utils"
+	"github.com/realjf/utils"
 )
 
 func main() {
