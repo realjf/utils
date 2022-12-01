@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
@@ -202,7 +203,7 @@ func (c *Command) Run() (output []byte, err error) {
 }
 
 func (c *Command) Close() {
-	defer c.cancel()
+	defer runtime.SetFinalizer(c, c.cancel)
 }
 
 func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
