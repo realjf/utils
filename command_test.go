@@ -14,6 +14,7 @@ func TestCmd(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 	cmd.SetUser(user)
+	defer cmd.Close()
 
 	path, err := os.Getwd()
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"os/user"
+	"time"
 
 	"github.com/realjf/utils"
 )
@@ -16,11 +17,13 @@ func main() {
 		return
 	}
 	cmd.SetUser(user)
+	defer cmd.Close()
 	path, err := os.Getwd()
 	if err != nil {
 		log.Println(err)
 		return
 	}
+	cmd.SetTimeout(1 * time.Second)
 	args := []string{"-al", path}
 	pid, err := cmd.Command("ls", args...)
 	if err != nil {
