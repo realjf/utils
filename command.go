@@ -60,10 +60,10 @@ func NewCommand(uid int, gid int, user *user.User) *Command {
 		cmd:       &exec.Cmd{},
 		timeout:   0,
 		workDir:   "",
-		procAttr:  syscall.SysProcAttr{
+		procAttr: syscall.SysProcAttr{
 			// Cloneflags:                 syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
 			// GidMappingsEnableSetgroups: true,
-			// Setpgid:                    true,
+			Setpgid: true,
 			// UidMappings: []syscall.SysProcIDMap{
 			// 	{
 			// 		ContainerID: 0,
@@ -78,8 +78,8 @@ func NewCommand(uid int, gid int, user *user.User) *Command {
 			// 		Size:        1,
 			// 	},
 			// },
-			// Pgid:       0,
-			// Credential: &syscall.Credential{},
+			Pgid:       0,
+			Credential: &syscall.Credential{},
 		},
 		stdout:    nil,
 		stderr:    nil,
@@ -190,7 +190,17 @@ func (c *Command) GetPid() int {
 	return c.pid
 }
 
+func (c *Command) Resume() error {
+	// resume subprocess
+	return c.cmd.Process.Signal(syscall.SIGCONT)
+}
+
 func (c *Command) Run() (output []byte, err error) {
+	err = c.Resume()
+	if err != nil {
+		return nil, err
+	}
+	c.wg.Wait()
 	if err = c.cmd.Wait(); err != nil {
 		if exiterr, ok := err.(*exec.ExitError); ok {
 			if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
@@ -211,13 +221,18 @@ func (c *Command) Run() (output []byte, err error) {
 }
 
 func (c *Command) Close() {
+	if c.stdout != nil {
+		c.stdout.Close()
+	}
+	if c.stderr != nil {
+		c.stderr.Close()
+	}
 	if c.stdin != nil {
-		defer c.stdin.Close()
+		c.stdin.Close()
 	}
 	if c.cancel != nil {
-		defer c.cancel()
+		c.cancel()
 	}
-
 }
 
 func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
@@ -266,7 +281,6 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		}
 		return pid, err
 	}
-	defer c.stdout.Close()
 	stdoutReader := bufio.NewReader(c.stdout)
 
 	c.stderr, err = c.cmd.StderrPipe()
@@ -276,7 +290,6 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		}
 		return pid, err
 	}
-	defer c.stderr.Close()
 	stderrReader := bufio.NewReader(c.stderr)
 
 	c.stdin, err = c.cmd.StdinPipe()
@@ -295,12 +308,17 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 	}
 
 	c.pid = c.cmd.Process.Pid
+	go c.Pause()
 	go c.handleReader(stdoutReader, 1)
 	c.wg.Add(1)
 	go c.handleReader(stderrReader, 2)
 	c.wg.Add(1)
-	c.wg.Wait()
 	return c.pid, nil
+}
+
+func (c *Command) Pause() error {
+	// pause subprocess
+	return c.cmd.Process.Signal(syscall.SIGTSTP)
 }
 
 func (c *Command) GetOutput() ([]byte, error) {

@@ -29,6 +29,7 @@ func main() {
 		log.Println(err)
 		return
 	}
+
 	cmd.NeedInput("hello:")
 	pid1 := cmd.GetPid()
 	log.Printf("pid is: %d, %d", pid, pid1)
