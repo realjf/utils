@@ -25,6 +25,8 @@ type Command struct {
 	stdout   bytes.Buffer
 	stderr   bytes.Buffer
 	wg       sync.WaitGroup
+	pid      int
+	cmd      *exec.Cmd
 }
 
 func NewCmd() *Command {
@@ -124,60 +126,20 @@ func (c *Command) GetGid_ui32() uint32 {
 }
 
 func (c *Command) RunCommand(cmdl string, args ...string) (output []byte, err error) {
-	log.Infof("run command under the uid[%d] gid[%d]", c.uid, c.gid)
-	cmd := exec.Command(cmdl, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		GidMappingsEnableSetgroups: true,
-		Setpgid:                    true,
-	}
-	cmd.SysProcAttr.Credential = &syscall.Credential{
-		Uid: c.uid_ui32,
-		Gid: c.gid_ui32,
-	}
-	if c.user != nil {
-		cmd.Env = append(os.Environ(), "USER="+c.user.Username, "HOME="+c.user.HomeDir)
-	} else {
-		cmd.Env = os.Environ()
-	}
-
-	syscall.Setgid(c.gid)
-	syscall.Setuid(c.uid)
-	syscall.Setreuid(-1, c.uid)
-	stdout, err := cmd.StdoutPipe()
+	err = c.Command(cmdl, args...)
 	if err != nil {
-		if c.debug {
-			log.Error(err.Error())
-		}
-		return
+		return nil, err
 	}
-	defer stdout.Close()
-	stdoutReader := bufio.NewReader(stdout)
+	return c.Run()
+}
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		if c.debug {
-			log.Error(err.Error())
-		}
-		return
-	}
-	defer stderr.Close()
-	stderrReader := bufio.NewReader(stderr)
+func (c *Command) GetPid() int {
+	return c.pid
+}
 
-	if err = cmd.Start(); err != nil {
-		if c.debug {
-			log.Error(err.Error())
-		}
-		return
-	}
+func (c *Command) Run() (output []byte, err error) {
 
-	go c.handleReader(stdoutReader, 1)
-	c.wg.Add(1)
-	go c.handleReader(stderrReader, 2)
-	c.wg.Add(1)
-
-	c.wg.Wait()
-
-	if err = cmd.Wait(); err != nil {
+	if err = c.cmd.Wait(); err != nil {
 		if exiterr, ok := err.(*exec.ExitError); ok {
 			if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
 				if c.debug {
@@ -194,6 +156,78 @@ func (c *Command) RunCommand(cmdl string, args ...string) (output []byte, err er
 	}
 
 	return c.GetOutput()
+}
+
+func (c *Command) Command(cmdl string, args ...string) (err error) {
+	log.Infof("run command under the uid[%d] gid[%d]", c.uid_ui32, c.gid_ui32)
+	c.cmd = exec.Command(cmdl, args...)
+	c.cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags:                 syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
+		GidMappingsEnableSetgroups: true,
+		Setpgid:                    true,
+		UidMappings: []syscall.SysProcIDMap{
+			{
+				ContainerID: 0,
+				HostID:      0,
+				Size:        1,
+			},
+		},
+		GidMappings: []syscall.SysProcIDMap{
+			{
+				ContainerID: 0,
+				HostID:      0,
+				Size:        1,
+			},
+		},
+		Pgid: 0,
+	}
+	c.cmd.SysProcAttr.Credential = &syscall.Credential{
+		Uid: c.uid_ui32,
+		Gid: c.gid_ui32,
+	}
+	if c.user != nil {
+		c.cmd.Env = append(os.Environ(), "USER="+c.user.Username, "HOME="+c.user.HomeDir)
+	} else {
+		c.cmd.Env = os.Environ()
+	}
+
+	syscall.Setgid(c.gid)
+	syscall.Setuid(c.uid)
+	syscall.Setreuid(-1, c.uid)
+	stdout, err := c.cmd.StdoutPipe()
+	if err != nil {
+		if c.debug {
+			log.Error(err.Error())
+		}
+		return err
+	}
+	defer stdout.Close()
+	stdoutReader := bufio.NewReader(stdout)
+
+	stderr, err := c.cmd.StderrPipe()
+	if err != nil {
+		if c.debug {
+			log.Error(err.Error())
+		}
+		return err
+	}
+	defer stderr.Close()
+	stderrReader := bufio.NewReader(stderr)
+
+	if err = c.cmd.Start(); err != nil {
+		if c.debug {
+			log.Error(err.Error())
+		}
+		return err
+	}
+
+	c.pid = c.cmd.Process.Pid
+	go c.handleReader(stdoutReader, 1)
+	c.wg.Add(1)
+	go c.handleReader(stderrReader, 2)
+	c.wg.Add(1)
+	c.wg.Wait()
+	return nil
 }
 
 func (c *Command) GetOutput() ([]byte, error) {
