@@ -2,18 +2,17 @@ package utils
 
 import (
 	"log"
-	"os/user"
 	"testing"
 )
 
 func TestCmd(t *testing.T) {
 	cmd := NewCmd()
-	user, err := user.Current()
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	cmd.SetUser(user)
+	// user, err := user.Current()
+	// if err != nil {
+	// 	log.Println(err)
+	// 	return
+	// }
+	// cmd.SetUser(user)
 	defer cmd.Close()
 	// path, err := os.Getwd()
 	// if err != nil {

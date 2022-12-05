@@ -2,19 +2,18 @@ package main
 
 import (
 	"log"
-	"os/user"
 
 	"github.com/realjf/utils"
 )
 
 func main() {
 	cmd := utils.NewCmd()
-	user, err := user.Current()
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	cmd.SetUser(user)
+	// user, err := user.Current()
+	// if err != nil {
+	// 	log.Println(err)
+	// 	return
+	// }
+	// cmd.SetUser(user)
 	defer cmd.Close()
 	// path, err := os.Getwd()
 	// if err != nil {
