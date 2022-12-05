@@ -233,9 +233,15 @@ func (c *Command) Run() (output []byte, err error) {
 			return nil, err
 		}
 	}
-	// c.wg.Wait()
+	c.wg.Wait()
 
 	if err = c.cmd.Wait(); err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			if c.debug {
+				log.Infof("Process done: %s", err.Error())
+			}
+			return c.stdoutbuf.Bytes(), nil
+		}
 		if exiterr, ok := err.(*exec.ExitError); ok {
 			if status, ok := exiterr.Sys().(syscall.WaitStatus); ok {
 				if c.debug {
@@ -347,9 +353,9 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		return pid, err
 	}
 	go c.handleReader(stdoutReader, 1)
-	// c.wg.Add(1)
+	c.wg.Add(1)
 	go c.handleReader(stderrReader, 2)
-	// c.wg.Add(1)
+	c.wg.Add(1)
 	go c.checkProcStateIsRunning()
 	return c.pid, nil
 }
@@ -388,7 +394,7 @@ func (c *Command) NeedInput(text string) {
 
 func (c *Command) handleReader(reader *bufio.Reader, stdio int) {
 	defer func() {
-		// c.wg.Done()
+		c.wg.Done()
 	}()
 	for {
 		str, err := reader.ReadString('\n')
@@ -398,11 +404,31 @@ func (c *Command) handleReader(reader *bufio.Reader, stdio int) {
 			c.stderrbuf.WriteString(str)
 		}
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if errors.Is(err, io.ErrClosedPipe) {
+				if c.debug {
+					log.Info(err)
+				}
+				return
+			} else if errors.Is(err, io.EOF) {
 				if c.debug {
 					log.Info("Read EOF")
 				}
-				break
+				return
+			} else if errors.Is(err, os.ErrClosed) {
+				if c.debug {
+					log.Info(err)
+				}
+				return
+			} else if errors.Is(err, os.ErrDeadlineExceeded) {
+				if c.debug {
+					log.Info(err)
+				}
+				return
+			} else if errors.Is(err, io.ErrUnexpectedEOF) {
+				if c.debug {
+					log.Info(err)
+				}
+				return
 			}
 			log.Error(err)
 			break
