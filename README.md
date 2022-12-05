@@ -10,3 +10,4 @@ fork/exec xxxxx: operation not permitted
 Please use it as root or sudo.
 
 or remove syscall.ProcAttr.Credential
+or call SetNoSetGroups(true)
