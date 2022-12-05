@@ -208,6 +208,9 @@ func (c *Command) checkProcStateIsRunning() {
 			if !run {
 				err = c.Resume()
 				if err != nil {
+					if errors.Is(err, os.ErrProcessDone) {
+						return
+					}
 					log.Error(err)
 				}
 			} else {
@@ -226,9 +229,10 @@ func (c *Command) Run() (output []byte, err error) {
 	}
 	err = c.Resume()
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, os.ErrProcessDone) {
+			return nil, err
+		}
 	}
-	c.running = true
 	c.wg.Wait()
 
 	if err = c.cmd.Wait(); err != nil {
