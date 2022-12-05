@@ -503,6 +503,7 @@ func (c *Command) handleReader(reader *bufio.Reader, stdio int) {
 					log.Info("Read EOF")
 				}
 				// return
+				continue
 			} else if errors.Is(err, os.ErrClosed) {
 				if c.debug {
 					log.Info(err)
