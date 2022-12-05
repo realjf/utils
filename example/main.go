@@ -10,7 +10,7 @@ import (
 // running under sudo
 func main() {
 	cmd := utils.NewCmd().SetDebug(true)
-	cmd.SetUsername(os.Getenv("SUDO_USER"))
+	cmd.GetUser().SetUsername(os.Getenv("SUDO_USER"))
 	defer cmd.Close()
 	// path, err := os.Getwd()
 	// if err != nil {

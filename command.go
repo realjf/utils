@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -19,14 +18,10 @@ import (
 )
 
 type Command struct {
-	uid_ui32    uint32
-	gid_ui32    uint32
-	uid         int
-	gid         int
-	user        *user.User
+	user        *UserAccount
 	debug       bool
-	stdoutbuf   bytes.Buffer
-	stderrbuf   bytes.Buffer
+	stdoutbuf   *IOReadCloser
+	stderrbuf   *IOReadCloser
 	wg          sync.WaitGroup
 	pid         int
 	cmd         *exec.Cmd
@@ -41,25 +36,43 @@ type Command struct {
 	stdin       io.WriteCloser
 	stdinChan   chan string
 	running     bool
-	lock        sync.Mutex
+	lock        sync.RWMutex
 	env         []string
 	noSetGroups bool
+	stop        chan bool
 }
 
 func NewCmd() *Command {
-	return &Command{}
+	return &Command{
+		user:        NewUserAccount(),
+		debug:       false,
+		stdoutbuf:   nil,
+		stderrbuf:   nil,
+		wg:          sync.WaitGroup{},
+		pid:         0,
+		cmd:         &exec.Cmd{},
+		timeout:     0,
+		workDir:     "",
+		procAttr:    nil,
+		credential:  nil,
+		stdout:      nil,
+		stderr:      nil,
+		stdin:       nil,
+		stdinChan:   make(chan string),
+		running:     false,
+		lock:        sync.RWMutex{},
+		env:         nil,
+		noSetGroups: false,
+		stop:        make(chan bool),
+	}
 }
 
-func NewCommand(uid int, gid int, user *user.User) *Command {
+func NewCommand() *Command {
 	return &Command{
-		uid_ui32:  uint32(uid),
-		gid_ui32:  uint32(gid),
-		uid:       uid,
-		gid:       gid,
-		user:      user,
+		user:      NewUserAccount(),
 		debug:     false,
-		stdoutbuf: bytes.Buffer{},
-		stderrbuf: bytes.Buffer{},
+		stdoutbuf: nil,
+		stderrbuf: nil,
 		wg:        sync.WaitGroup{},
 		pid:       0,
 		cmd:       &exec.Cmd{},
@@ -93,9 +106,10 @@ func NewCommand(uid int, gid int, user *user.User) *Command {
 		stdin:       nil,
 		stdinChan:   make(chan string),
 		running:     false,
-		lock:        sync.Mutex{},
+		lock:        sync.RWMutex{},
 		env:         nil,
 		noSetGroups: false,
+		stop:        make(chan bool),
 	}
 }
 
@@ -134,27 +148,6 @@ func (c *Command) SetDebug(debug bool) *Command {
 	return c
 }
 
-func (c *Command) SetUser(u *user.User) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.user = u
-	c.uid, _ = strconv.Atoi(u.Uid)
-	c.gid, _ = strconv.Atoi(u.Gid)
-	u64, _ := strconv.ParseUint(u.Uid, 10, 32)
-	g64, _ := strconv.ParseUint(u.Gid, 10, 32)
-	c.uid_ui32 = uint32(u64)
-	c.gid_ui32 = uint32(g64)
-}
-
-func (c *Command) SetUsername(username string) error {
-	User, err := user.Lookup(username)
-	if err != nil {
-		return err
-	}
-	c.SetUser(User)
-	return nil
-}
-
 func (c *Command) Mkdir(path string, perm os.FileMode) (output []byte, err error) {
 	args := []string{"-p", path, "-m", "=" + perm.String()}
 	output, err = c.RunCommand("mkdir", args...)
@@ -179,40 +172,6 @@ func (c *Command) Lsof(path string) (output []byte, err error) {
 	return
 }
 
-func (c *Command) GetUser() *user.User {
-	return c.user
-}
-
-func (c *Command) SetUid(u uint64) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.uid = int(u)
-	c.uid_ui32 = uint32(u)
-}
-
-func (c *Command) GetUid() int {
-	return c.uid
-}
-
-func (c *Command) GetUid_ui32() uint32 {
-	return c.uid_ui32
-}
-
-func (c *Command) SetGid(g uint64) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.gid = int(g)
-	c.gid_ui32 = uint32(g)
-}
-
-func (c *Command) GetGid() int {
-	return c.gid
-}
-
-func (c *Command) GetGid_ui32() uint32 {
-	return c.gid_ui32
-}
-
 func (c *Command) RunCommand(cmdl string, args ...string) (output []byte, err error) {
 	_, err = c.Command(cmdl, args...)
 	if err != nil {
@@ -222,6 +181,8 @@ func (c *Command) RunCommand(cmdl string, args ...string) (output []byte, err er
 }
 
 func (c *Command) GetPid() int {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 	return c.pid
 }
 
@@ -261,6 +222,23 @@ func (c *Command) checkProcStateIsRunning() {
 		}
 		time.Sleep(3 * time.Second)
 	}
+}
+
+func (c *Command) GetUser() *UserAccount {
+	return c.user
+}
+
+func (c *Command) SetUser(u *user.User) {
+	c.user.SetUser(u)
+}
+
+func (c *Command) SetUsername(username string) error {
+	User, err := user.Lookup(username)
+	if err != nil {
+		return err
+	}
+	c.user.SetUser(User)
+	return nil
 }
 
 func (c *Command) Run() (output []byte, err error) {
@@ -338,7 +316,7 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if c.debug {
-		log.Infof("run command under the uid[%d] gid[%d]", c.uid_ui32, c.gid_ui32)
+		log.Infof("run command under the uid[%d] gid[%d]", c.GetUser().GetUid_ui32(), c.GetUser().GetGid_ui32())
 	}
 
 	if c.timeout > 0 {
@@ -359,14 +337,14 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		c.cmd.SysProcAttr.Credential = c.credential
 	}
 
-	if c.uid_ui32 > 0 && c.gid_ui32 > 0 {
+	if c.GetUser().GetUid_ui32() > 0 && c.GetUser().GetGid_ui32() > 0 {
 		if c.credential == nil {
 			if c.cmd.SysProcAttr == nil {
 				c.cmd.SysProcAttr = &syscall.SysProcAttr{}
 			}
 			c.cmd.SysProcAttr.Credential = &syscall.Credential{
-				Uid:         c.uid_ui32,
-				Gid:         c.gid_ui32,
+				Uid:         c.GetUser().GetUid_ui32(),
+				Gid:         c.GetUser().GetGid_ui32(),
 				NoSetGroups: false, //
 			}
 		}
@@ -378,8 +356,8 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		}
 	}
 
-	if c.user != nil {
-		c.cmd.Env = append(os.Environ(), "USER="+c.user.Username, "HOME="+c.user.HomeDir)
+	if c.GetUser().GetUser() != nil {
+		c.cmd.Env = append(os.Environ(), "USER="+c.GetUser().GetUser().Username, "HOME="+c.GetUser().GetUser().HomeDir)
 	} else {
 		c.cmd.Env = os.Environ()
 	}
@@ -398,9 +376,9 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		c.cmd.Dir = curDir
 	}
 
-	syscall.Setgid(c.gid)
-	syscall.Setuid(c.uid)
-	syscall.Setreuid(-1, c.uid)
+	// syscall.Setgid(c.gid)
+	// syscall.Setuid(c.uid)
+	// syscall.Setreuid(-1, c.uid)
 	c.stdout, err = c.cmd.StdoutPipe()
 	if err != nil {
 		if c.debug {
@@ -408,7 +386,7 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		}
 		return pid, err
 	}
-	stdoutReader := bufio.NewReader(c.stdout)
+	c.stdoutbuf = NewReader(c.stdout)
 
 	c.stderr, err = c.cmd.StderrPipe()
 	if err != nil {
@@ -417,7 +395,7 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		}
 		return pid, err
 	}
-	stderrReader := bufio.NewReader(c.stderr)
+	c.stderrbuf = NewReader(c.stderr)
 
 	c.stdin, err = c.cmd.StdinPipe()
 	if err != nil {
@@ -441,9 +419,9 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 	}
 	c.running = false
 	c.wg.Add(1)
-	go c.handleReader(stdoutReader, 1)
+	go c.handleReader(c.stdout, 1)
 	c.wg.Add(1)
-	go c.handleReader(stderrReader, 2)
+	go c.handleReader(c.stderr, 2)
 	go c.checkProcStateIsRunning()
 	return c.pid, nil
 }
@@ -454,6 +432,8 @@ func (c *Command) Pause() error {
 }
 
 func (c *Command) GetOutput() ([]byte, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 	if c.stderrbuf.Bytes() != nil {
 		return nil, fmt.Errorf("%s", c.stderrbuf.Bytes())
 	}
@@ -461,6 +441,8 @@ func (c *Command) GetOutput() ([]byte, error) {
 }
 
 func (c *Command) GetStderrOutput() ([]byte, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
 	return c.stderrbuf.Bytes(), nil
 }
 
@@ -481,16 +463,18 @@ func (c *Command) NeedInput(text string) {
 	}
 }
 
-func (c *Command) handleReader(reader *bufio.Reader, stdio int) {
+func (c *Command) handleReader(std io.ReadCloser, stdio int) {
 	defer func() {
 		c.wg.Done()
 	}()
+
 	for {
-		str, err := reader.ReadString('\n')
+		var err error
+		var str string
 		if stdio == 1 {
-			c.stdoutbuf.WriteString(str)
+			str, err = c.stdoutbuf.Read()
 		} else if stdio == 2 {
-			c.stderrbuf.WriteString(str)
+			str, err = c.stderrbuf.Read()
 		}
 		if err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {
@@ -498,12 +482,6 @@ func (c *Command) handleReader(reader *bufio.Reader, stdio int) {
 					log.Info(err)
 				}
 				return
-			} else if errors.Is(err, io.EOF) {
-				if c.debug {
-					log.Info("Read EOF")
-				}
-				// return
-				continue
 			} else if errors.Is(err, os.ErrClosed) {
 				if c.debug {
 					log.Info(err)
@@ -517,6 +495,11 @@ func (c *Command) handleReader(reader *bufio.Reader, stdio int) {
 			} else if errors.Is(err, io.ErrUnexpectedEOF) {
 				if c.debug {
 					log.Info(err)
+				}
+				return
+			} else if errors.Is(err, io.EOF) {
+				if c.debug {
+					log.Info("Read EOF")
 				}
 				return
 			} else {

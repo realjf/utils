@@ -1,3 +1,5 @@
+.PHONY: test push build build_test run_test clean
+
 test:
 	@go test -v ./...
 
@@ -20,4 +22,6 @@ dtag:
 	@echo 'delete ${t}'
 	@git push --delete origin ${t} && git tag -d ${t}
 
-.PHONY: test push
+
+clean:
+	@go clean -testcache

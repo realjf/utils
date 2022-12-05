@@ -1,7 +1,10 @@
 package utils
 
 import (
+	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"testing"
 )
 
@@ -67,4 +70,16 @@ func TestCmd2(t *testing.T) {
 		return
 	}
 	log.Printf("%s", out)
+}
+
+func TestV2(t *testing.T) {
+	cmd := NewCmd().SetDebug(true)
+	defer cmd.Close()
+	args := []string{"-c", "$(echo -1000 > /proc/" + strconv.Itoa(os.Getpid()) + "/oom_score_adj)"}
+	_, err := cmd.RunCommand("/bin/bash", args...)
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+	} else {
+		fmt.Println("done")
+	}
 }
