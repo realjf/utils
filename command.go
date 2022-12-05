@@ -41,6 +41,7 @@ type Command struct {
 	stdinChan chan string
 	running   bool
 	lock      sync.Mutex
+	env       []string
 }
 
 func NewCmd() *Command {
@@ -90,6 +91,7 @@ func NewCommand(uid int, gid int, user *user.User) *Command {
 		stdinChan: make(chan string),
 		running:   false,
 		lock:      sync.Mutex{},
+		env:       nil,
 	}
 }
 
@@ -304,6 +306,12 @@ func (c *Command) Close() {
 	}
 }
 
+func (c *Command) SetEnv(envs []string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.env = envs
+}
+
 func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -336,6 +344,10 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		c.cmd.Env = append(os.Environ(), "USER="+c.user.Username, "HOME="+c.user.HomeDir)
 	} else {
 		c.cmd.Env = os.Environ()
+	}
+
+	if c.env == nil {
+		c.cmd.Env = c.env
 	}
 
 	if c.workDir != "" {

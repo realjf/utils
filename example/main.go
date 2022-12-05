@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	cmd := utils.NewCmd()
+	cmd := utils.NewCmd().SetDebug(true)
 	// user, err := user.Current()
 	// if err != nil {
 	// 	log.Println(err)
@@ -21,8 +21,8 @@ func main() {
 	// 	return
 	// }
 	// cmd.SetTimeout(1 * time.Second)
-	args := []string{"--cpu", "1", "--vm", "1", "--vm-bytes", "220M", "--timeout", "10s", "--vm-keep"}
-	pid, err := cmd.Command("stress", args...)
+	args := []string{"/home/realjf/Downloads/e780530a-5eac-4118-9aa0-cb2d2f3e7db8.epub", "/home/realjf/Downloads/e780530a-5eac-4118-9aa0-cb2d2f3e7db8.pdf"}
+	pid, err := cmd.Command("ebook-convert", args...)
 	if err != nil {
 		log.Println(err)
 		return
