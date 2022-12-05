@@ -203,7 +203,10 @@ func (c *Command) checkProcStateIsRunning() {
 		if c.running {
 			run, err := CheckProcStateIsStopped(c.pid)
 			if err != nil {
-				log.Error(err)
+				if c.debug {
+					log.Error(err)
+				}
+
 			}
 			if !run {
 				err = c.Resume()
@@ -211,7 +214,9 @@ func (c *Command) checkProcStateIsRunning() {
 					if errors.Is(err, os.ErrProcessDone) {
 						return
 					}
-					log.Error(err)
+					if c.debug {
+						log.Error(err)
+					}
 				}
 			} else {
 				break
