@@ -233,7 +233,7 @@ func (c *Command) Run() (output []byte, err error) {
 			return nil, err
 		}
 	}
-	c.wg.Wait()
+	// c.wg.Wait()
 
 	if err = c.cmd.Wait(); err != nil {
 		if exiterr, ok := err.(*exec.ExitError); ok {
@@ -342,11 +342,14 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 	}
 
 	c.pid = c.cmd.Process.Pid
-	go c.Pause()
+	err = c.Pause()
+	if err != nil {
+		return pid, err
+	}
 	go c.handleReader(stdoutReader, 1)
-	c.wg.Add(1)
+	// c.wg.Add(1)
 	go c.handleReader(stderrReader, 2)
-	c.wg.Add(1)
+	// c.wg.Add(1)
 	go c.checkProcStateIsRunning()
 	return c.pid, nil
 }
@@ -385,7 +388,7 @@ func (c *Command) NeedInput(text string) {
 
 func (c *Command) handleReader(reader *bufio.Reader, stdio int) {
 	defer func() {
-		c.wg.Done()
+		// c.wg.Done()
 	}()
 	for {
 		str, err := reader.ReadString('\n')
