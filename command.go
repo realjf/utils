@@ -360,10 +360,10 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 	if err != nil {
 		return pid, err
 	}
+	c.wg.Add(1)
 	go c.handleReader(stdoutReader, 1)
 	c.wg.Add(1)
 	go c.handleReader(stderrReader, 2)
-	c.wg.Add(1)
 	go c.checkProcStateIsRunning()
 	return c.pid, nil
 }
