@@ -40,6 +40,7 @@ type Command struct {
 	stdin     io.WriteCloser
 	stdinChan chan string
 	running   bool
+	lock      sync.Mutex
 }
 
 func NewCmd() *Command {
@@ -87,27 +88,38 @@ func NewCommand(uid int, gid int, user *user.User) *Command {
 		stdin:     nil,
 		stdinChan: make(chan string),
 		running:   false,
+		lock:      sync.Mutex{},
 	}
 }
 
 func (c *Command) SetSysProcAttr(procAttr syscall.SysProcAttr) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.procAttr = procAttr
 }
 
 func (c *Command) SetTimeout(t time.Duration) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.timeout = t
 }
 
 func (c *Command) SetWorkDir(wd string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.workDir = wd
 }
 
 func (c *Command) SetDebug(debug bool) *Command {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.debug = debug
 	return c
 }
 
 func (c *Command) SetUser(u *user.User) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.user = u
 	c.uid, _ = strconv.Atoi(u.Uid)
 	c.gid, _ = strconv.Atoi(u.Gid)
@@ -155,6 +167,8 @@ func (c *Command) GetUser() *user.User {
 }
 
 func (c *Command) SetUid(u uint64) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.uid = int(u)
 	c.uid_ui32 = uint32(u)
 }
@@ -168,6 +182,8 @@ func (c *Command) GetUid_ui32() uint32 {
 }
 
 func (c *Command) SetGid(g uint64) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	c.gid = int(g)
 	c.gid_ui32 = uint32(g)
 }
@@ -193,8 +209,9 @@ func (c *Command) GetPid() int {
 }
 
 func (c *Command) Resume() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	// resume subprocess
-	c.running = true
 	return c.cmd.Process.Signal(syscall.SIGCONT)
 }
 
@@ -212,12 +229,13 @@ func (c *Command) checkProcStateIsRunning() {
 				err = c.Resume()
 				if err != nil {
 					if errors.Is(err, os.ErrProcessDone) {
-						return
+						break
 					}
 					if c.debug {
 						log.Error(err)
 					}
 				}
+				c.running = true
 			} else {
 				break
 			}
@@ -269,6 +287,8 @@ func (c *Command) Run() (output []byte, err error) {
 }
 
 func (c *Command) Close() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	if c.stdout != nil {
 		c.stdout.Close()
 	}
@@ -284,6 +304,8 @@ func (c *Command) Close() {
 }
 
 func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	if c.debug {
 		log.Infof("run command under the uid[%d] gid[%d]", c.uid_ui32, c.gid_ui32)
 	}
@@ -360,6 +382,7 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 	if err != nil {
 		return pid, err
 	}
+	c.running = false
 	c.wg.Add(1)
 	go c.handleReader(stdoutReader, 1)
 	c.wg.Add(1)
@@ -370,7 +393,6 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 
 func (c *Command) Pause() error {
 	// pause subprocess
-	c.running = false
 	return c.cmd.Process.Signal(syscall.SIGTSTP)
 }
 
@@ -386,6 +408,8 @@ func (c *Command) GetStderrOutput() ([]byte, error) {
 }
 
 func (c *Command) NeedInput(text string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
 	stdinWriter := bufio.NewWriter(c.stdin)
 	reader := bufio.NewReader(os.Stdin)
 	os.Stdout.WriteString(text)
