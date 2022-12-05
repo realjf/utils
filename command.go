@@ -519,9 +519,12 @@ func (c *Command) handleReader(reader *bufio.Reader, stdio int) {
 					log.Info(err)
 				}
 				return
+			} else {
+				if c.debug {
+					log.Error(err)
+				}
+				break
 			}
-			log.Error(err)
-			break
 		}
 
 		if c.debug {
