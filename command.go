@@ -230,7 +230,10 @@ func (c *Command) checkProcStateIsRunning() {
 
 func (c *Command) Run() (output []byte, err error) {
 	if c.cmd.Process == nil {
-		log.Error("subprocess already exited")
+		if c.debug {
+			log.Error("subprocess already exited")
+		}
+		return nil, errors.New("subprocess already exited")
 	}
 	err = c.Resume()
 	if err != nil {
