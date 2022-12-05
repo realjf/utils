@@ -19,29 +19,31 @@ import (
 )
 
 type Command struct {
-	uid_ui32  uint32
-	gid_ui32  uint32
-	uid       int
-	gid       int
-	user      *user.User
-	debug     bool
-	stdoutbuf bytes.Buffer
-	stderrbuf bytes.Buffer
-	wg        sync.WaitGroup
-	pid       int
-	cmd       *exec.Cmd
-	timeout   time.Duration
-	workDir   string
-	ctx       context.Context
-	cancel    context.CancelFunc
-	procAttr  *syscall.SysProcAttr
-	stdout    io.ReadCloser
-	stderr    io.ReadCloser
-	stdin     io.WriteCloser
-	stdinChan chan string
-	running   bool
-	lock      sync.Mutex
-	env       []string
+	uid_ui32    uint32
+	gid_ui32    uint32
+	uid         int
+	gid         int
+	user        *user.User
+	debug       bool
+	stdoutbuf   bytes.Buffer
+	stderrbuf   bytes.Buffer
+	wg          sync.WaitGroup
+	pid         int
+	cmd         *exec.Cmd
+	timeout     time.Duration
+	workDir     string
+	ctx         context.Context
+	cancel      context.CancelFunc
+	procAttr    *syscall.SysProcAttr
+	credential  *syscall.Credential
+	stdout      io.ReadCloser
+	stderr      io.ReadCloser
+	stdin       io.WriteCloser
+	stdinChan   chan string
+	running     bool
+	lock        sync.Mutex
+	env         []string
+	noSetGroups bool
 }
 
 func NewCmd() *Command {
@@ -63,54 +65,66 @@ func NewCommand(uid int, gid int, user *user.User) *Command {
 		cmd:       &exec.Cmd{},
 		timeout:   0,
 		workDir:   "",
-		procAttr: &syscall.SysProcAttr{
-			// Cloneflags:                 syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
-			// GidMappingsEnableSetgroups: true,
-			Setpgid: true,
-			// UidMappings: []syscall.SysProcIDMap{
-			// 	{
-			// 		ContainerID: 0,
-			// 		HostID:      0,
-			// 		Size:        1,
-			// 	},
-			// },
-			// GidMappings: []syscall.SysProcIDMap{
-			// 	{
-			// 		ContainerID: 0,
-			// 		HostID:      0,
-			// 		Size:        1,
-			// 	},
-			// },
-			Pgid:       0,
-			Credential: &syscall.Credential{},
-		},
-		// procAttr:  nil,
-		stdout:    nil,
-		stderr:    nil,
-		stdin:     nil,
-		stdinChan: make(chan string),
-		running:   false,
-		lock:      sync.Mutex{},
-		env:       nil,
+		// procAttr: &syscall.SysProcAttr{
+		// Cloneflags:                 syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNET,
+		// GidMappingsEnableSetgroups: true,
+		// Setpgid: true,
+		// UidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      0,
+		// 		Size:        1,
+		// 	},
+		// },
+		// GidMappings: []syscall.SysProcIDMap{
+		// 	{
+		// 		ContainerID: 0,
+		// 		HostID:      0,
+		// 		Size:        1,
+		// 	},
+		// },
+		// 	Pgid:       0,
+		// 	Credential: &syscall.Credential{},
+		// },
+		procAttr:    nil,
+		credential:  nil,
+		stdout:      nil,
+		stderr:      nil,
+		stdin:       nil,
+		stdinChan:   make(chan string),
+		running:     false,
+		lock:        sync.Mutex{},
+		env:         nil,
+		noSetGroups: false,
 	}
 }
 
-func (c *Command) SetSysProcAttr(procAttr syscall.SysProcAttr) {
+func (c *Command) SetSysProcAttr(procAttr syscall.SysProcAttr) *Command {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.procAttr = &procAttr
+	return c
 }
 
-func (c *Command) SetTimeout(t time.Duration) {
+func (c *Command) SetSysCredential(credential syscall.Credential) *Command {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.credential = &credential
+	return c
+}
+
+func (c *Command) SetTimeout(t time.Duration) *Command {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.timeout = t
+	return c
 }
 
-func (c *Command) SetWorkDir(wd string) {
+func (c *Command) SetWorkDir(wd string) *Command {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.workDir = wd
+	return c
 }
 
 func (c *Command) SetDebug(debug bool) *Command {
@@ -306,10 +320,18 @@ func (c *Command) Close() {
 	}
 }
 
-func (c *Command) SetEnv(envs []string) {
+func (c *Command) SetEnv(envs []string) *Command {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.env = envs
+	return c
+}
+
+func (c *Command) SetNoSetGroups(noSetGroups bool) *Command {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.noSetGroups = noSetGroups
+	return c
 }
 
 func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
@@ -330,13 +352,29 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		c.cmd.SysProcAttr = c.procAttr
 	}
 
-	if c.uid_ui32 > 0 && c.gid_ui32 > 0 {
+	if c.credential != nil {
 		if c.cmd.SysProcAttr == nil {
 			c.cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
-		c.cmd.SysProcAttr.Credential = &syscall.Credential{
-			Uid: c.uid_ui32,
-			Gid: c.gid_ui32,
+		c.cmd.SysProcAttr.Credential = c.credential
+	}
+
+	if c.uid_ui32 > 0 && c.gid_ui32 > 0 {
+		if c.credential == nil {
+			if c.cmd.SysProcAttr == nil {
+				c.cmd.SysProcAttr = &syscall.SysProcAttr{}
+			}
+			c.cmd.SysProcAttr.Credential = &syscall.Credential{
+				Uid:         c.uid_ui32,
+				Gid:         c.gid_ui32,
+				NoSetGroups: false, //
+			}
+		}
+	}
+
+	if c.noSetGroups {
+		if c.cmd.SysProcAttr != nil && c.cmd.SysProcAttr.Credential != nil {
+			c.cmd.SysProcAttr.Credential.NoSetGroups = c.noSetGroups
 		}
 	}
 
