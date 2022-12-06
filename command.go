@@ -362,7 +362,7 @@ func (c *Command) Command(cmdl string, args ...string) (pid int, err error) {
 		c.cmd.Env = os.Environ()
 	}
 
-	if c.env == nil {
+	if c.env != nil {
 		c.cmd.Env = c.env
 	}
 
