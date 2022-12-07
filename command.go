@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -434,9 +433,6 @@ func (c *Command) Pause() error {
 func (c *Command) GetOutput() ([]byte, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	if c.stderrbuf.Bytes() != nil {
-		return nil, fmt.Errorf("%s", c.stderrbuf.Bytes())
-	}
 	return c.stdoutbuf.Bytes(), nil
 }
 
