@@ -1,6 +1,12 @@
 # utils
 utils for go
 
+### Build
+**`need use -tags`**
+```
+go build -tags=[linux,windows,darwin] ...
+```
+
 ### Tip!!!
 If you get this when running your program:
 ```sh

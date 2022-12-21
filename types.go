@@ -7,6 +7,12 @@ import (
 	"sync"
 )
 
+const (
+	STDIN  int = 0
+	STDOUT int = 1
+	STDERR int = 2
+)
+
 type IOReadCloser struct {
 	io     io.ReadCloser
 	lock   sync.RWMutex
