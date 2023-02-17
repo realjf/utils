@@ -40,7 +40,7 @@ type Cmd struct {
 	env         []string
 	noSetGroups bool
 	stop        chan bool
-	lazyDLL     *syscall.LazyDLL
+	kernel32DLL *syscall.LazyDLL
 }
 
 func NewCmd() *Cmd {
@@ -65,7 +65,7 @@ func NewCmd() *Cmd {
 		env:         nil,
 		noSetGroups: false,
 		stop:        make(chan bool),
-		lazyDLL:     syscall.NewLazyDLL("Kernel32.dll"),
+		kernel32DLL: syscall.NewLazyDLL("Kernel32.dll"),
 	}
 	runtime.SetFinalizer(c, (*Cmd).Close)
 	return c
@@ -114,7 +114,7 @@ func NewCommand() *Cmd {
 		env:         nil,
 		noSetGroups: false,
 		stop:        make(chan bool),
-		lazyDLL:     syscall.NewLazyDLL("Kernel32.dll"),
+		kernel32DLL: syscall.NewLazyDLL("Kernel32.dll"),
 	}
 	runtime.SetFinalizer(c, (*Cmd).Close)
 	return c
